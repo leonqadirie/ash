@@ -1679,6 +1679,9 @@ defmodule Ash.Filter do
       %Ash.Query.Call{args: args} = op ->
         %{op | args: map(args, func)}
 
+      %Ash.Query.Operator.In{left: left, right: %MapSet{} = right} = op ->
+        Ash.Query.Operator.In.with_right(%{op | left: map(left, func)}, map(right, func))
+
       %{__operator__?: true, left: left, right: right} = op ->
         %{op | left: map(left, func), right: map(right, func)}
 

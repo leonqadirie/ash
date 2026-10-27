@@ -117,7 +117,7 @@ defmodule Ash.Query.BooleanExpression do
         %In{left: left, right: %MapSet{} = mapset} = right_expr
       ) do
     if can_optimize?(value) do
-      %{right_expr | right: MapSet.delete(mapset, value)}
+      In.with_right(right_expr, MapSet.delete(mapset, value))
     else
       do_new(:and, left_op, right_expr)
     end
@@ -166,7 +166,7 @@ defmodule Ash.Query.BooleanExpression do
       case MapSet.size(intersection) do
         0 -> false
         1 -> %Eq{left: left, right: Enum.at(intersection, 0)}
-        _ -> %{right_expr | right: intersection}
+        _ -> In.with_right(right_expr, intersection)
       end
     else
       do_new(:and, left_expr, right_expr)

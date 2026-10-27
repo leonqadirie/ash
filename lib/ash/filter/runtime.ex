@@ -730,6 +730,7 @@ defmodule Ash.Filter.Runtime do
                resolve_exprs([left, right], record, parent, resource, unknown_on_unknown_refs?),
              {:op, {:ok, new_pred}} <-
                {:op, Ash.Query.Operator.try_cast_with_ref(mod, left, right)},
+             new_pred = keep_set_kind(pred, new_pred),
              {:known, val} <-
                evaluate(new_pred, record, parent, resource, unknown_on_unknown_refs?) do
           {:ok, val}
@@ -884,6 +885,17 @@ defmodule Ash.Filter.Runtime do
   end
 
   defp resolve_expr(other, _, _, _, _), do: {:ok, other}
+
+  # Rebuilding an operator from its resolved sides drops what it knew about its set, so the
+  # rebuilt one takes that over when the set is the same.
+  defp keep_set_kind(
+         %Ash.Query.Operator.In{right: right, primitive_members: kind},
+         %Ash.Query.Operator.In{right: right} = new_pred
+       ) do
+    %{new_pred | primitive_members: kind}
+  end
+
+  defp keep_set_kind(_, new_pred), do: new_pred
 
   defp try_cast_arguments(:var_args, args) do
     args

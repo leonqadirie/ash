@@ -14,13 +14,16 @@ defmodule Ash.Query.Operator.In do
   use Ash.Query.Operator,
     operator: :in,
     predicate?: true,
-    types: [[:any, {:array, :same}]]
+    types: [[:any, {:array, :same}]],
+    # Holds the one primitive kind every member of the set shares, or nil when they don't.
+    # Replacing the set has to go through the setter so that it stays true.
+    struct_fields: [primitive_members: nil]
 
   @inspect_items_limit 10
   @dialyzer {:nowarn_function, compare: 2}
 
   def new(%Ash.Query.Ref{} = left, right) when is_list(right) do
-    {:ok, %__MODULE__{left: left, right: MapSet.new(right)}}
+    {:ok, with_right(%__MODULE__{left: left}, MapSet.new(right))}
   end
 
   def new(left, right), do: {:ok, %__MODULE__{left: left, right: right}}
@@ -30,13 +33,18 @@ defmodule Ash.Query.Operator.In do
   def evaluate(%{left: nil}), do: {:known, nil}
   def evaluate(%{right: nil}), do: {:known, nil}
 
-  def evaluate(%{left: left, right: %MapSet{} = right}) do
+  def evaluate(%{left: left, right: %MapSet{} = right} = op) do
     # `Comp.equal?/2` is semantic rather than structural equality — `1` equals
     # `1.0`, a `Decimal` equals the integer and the string spelling the same
     # number, an `Ash.CiString` equals a binary differing only in case — so a
     # set miss does not imply the value is absent. A set hit does imply a match,
     # though, so take it directly and only walk the members when it misses.
-    {:known, MapSet.member?(right, left) or Enum.any?(right, &Comp.equal?(&1, left))}
+    # Two binaries, two atoms or two integers compare as plain terms, so when
+    # the value and every member share one of those kinds a miss is final.
+    {:known,
+     MapSet.member?(right, left) or
+       (not same_primitive?(left, Map.get(op, :primitive_members)) and
+          Enum.any?(right, &Comp.equal?(&1, left)))}
   end
 
   def evaluate(%{left: left, right: right}) do
@@ -73,6 +81,33 @@ defmodule Ash.Query.Operator.In do
   def compare(_, _) do
     :unknown
   end
+
+  @doc false
+  def with_right(%__MODULE__{} = op, %MapSet{} = right) do
+    %{op | right: right, primitive_members: primitive_members(right)}
+  end
+
+  def with_right(%__MODULE__{} = op, right), do: %{op | right: right, primitive_members: nil}
+
+  @doc false
+  def primitive_members(%MapSet{} = mapset) do
+    Enum.reduce_while(mapset, nil, fn member, kind ->
+      case {primitive_kind(member), kind} do
+        {nil, _} -> {:halt, nil}
+        {member_kind, nil} -> {:cont, member_kind}
+        {kind, kind} -> {:cont, kind}
+        _ -> {:halt, nil}
+      end
+    end)
+  end
+
+  defp primitive_kind(value) when is_binary(value), do: :binary
+  defp primitive_kind(value) when is_atom(value), do: :atom
+  defp primitive_kind(value) when is_integer(value), do: :integer
+  defp primitive_kind(_), do: nil
+
+  defp same_primitive?(_, nil), do: false
+  defp same_primitive?(value, kind), do: primitive_kind(value) == kind
 
   defp semantic_member?(mapset, value) do
     MapSet.member?(mapset, value) or Enum.any?(mapset, &Comp.equal?(&1, value))

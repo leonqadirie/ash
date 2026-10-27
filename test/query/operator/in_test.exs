@@ -105,6 +105,55 @@ defmodule Ash.Query.Operator.InTest do
       assert In.evaluate(%In{left: "a", right: nil}) == {:known, nil}
     end
 
+    test "a set built from one primitive kind records that kind" do
+      ref = %Ash.Query.Ref{attribute: :title}
+
+      assert {:ok, %In{primitive_members: :binary}} = In.new(ref, ["a", "b"])
+      assert {:ok, %In{primitive_members: :atom}} = In.new(ref, [:a, nil])
+      assert {:ok, %In{primitive_members: :integer}} = In.new(ref, [1, 2])
+      assert {:ok, %In{primitive_members: nil}} = In.new(ref, [1, 2.0])
+      assert {:ok, %In{primitive_members: nil}} = In.new(ref, ["a", :a])
+      assert {:ok, %In{primitive_members: nil}} = In.new(ref, ["a", Ash.CiString.new("b")])
+    end
+
+    test "a set of one primitive kind still matches values of other kinds semantically" do
+      {:ok, binaries} = In.new(%Ash.Query.Ref{attribute: :title}, ["foo", "1"])
+      {:ok, integers} = In.new(%Ash.Query.Ref{attribute: :score}, [1])
+
+      assert In.evaluate(%{binaries | left: "bar"}) == {:known, false}
+      assert In.evaluate(%{binaries | left: :foo}) == {:known, true}
+      assert In.evaluate(%{binaries | left: Ash.CiString.new("FOO")}) == {:known, true}
+      assert In.evaluate(%{binaries | left: Decimal.new(1)}) == {:known, true}
+      assert In.evaluate(%{binaries | left: %Version{number: "1"}}) == {:known, true}
+      assert In.evaluate(%{integers | left: 2}) == {:known, false}
+      assert In.evaluate(%{integers | left: 1.0}) == {:known, true}
+    end
+
+    test "mapping the set's members to another kind updates the recorded kind" do
+      {:ok, atoms} = In.new(%Ash.Query.Ref{attribute: :title}, [:a, :b])
+
+      strings =
+        Ash.Filter.map(atoms, fn
+          value when is_atom(value) and not is_nil(value) and not is_boolean(value) ->
+            to_string(value)
+
+          other ->
+            other
+        end)
+
+      assert %In{primitive_members: :binary} = strings
+      assert In.evaluate(%{strings | left: :a}) == {:known, true}
+    end
+
+    test "narrowing a set records the kind the remaining members share" do
+      ref = %Ash.Query.Ref{attribute: :title}
+      {:ok, mixed} = In.new(ref, ["a", "b", 1])
+      {:ok, strings} = In.new(ref, ["a", "b", "c"])
+      {:ok, expected} = In.new(ref, ["a", "b"])
+
+      assert Ash.Query.BooleanExpression.optimized_new(:and, strings, mixed) == expected
+    end
+
     test "a list on the right is supported alongside a set" do
       assert In.evaluate(%In{left: "b", right: ["a", "b"]}) == {:known, true}
       assert In.evaluate(%In{left: "z", right: ["a", "b"]}) == {:known, false}

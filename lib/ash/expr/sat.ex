@@ -402,7 +402,7 @@ defmodule Ash.Expr.SAT do
         %Ash.Query.Operator.Eq{left: base.left, right: Enum.at(right, 0)}
 
       _ ->
-        %Ash.Query.Operator.In{left: base.left, right: right}
+        Ash.Query.Operator.In.with_right(%Ash.Query.Operator.In{left: base.left}, right)
     end
   end
 

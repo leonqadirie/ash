@@ -471,15 +471,18 @@ defmodule Ash.Query.Operator do
       raise "Operator is required!"
     end
 
-    quote do
-      defstruct [
+    struct_fields =
+      [
         :left,
         :right,
-        operator: unquote(opts[:operator]),
+        operator: opts[:operator],
         embedded?: false,
         __operator__?: true,
-        __predicate__?: unquote(opts[:predicate?] || false)
-      ]
+        __predicate__?: opts[:predicate?] || false
+      ] ++ (opts[:struct_fields] || [])
+
+    quote do
+      defstruct unquote(struct_fields)
 
       if unquote(opts[:predicate?]) do
         @behaviour Ash.Filter.Predicate
