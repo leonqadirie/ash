@@ -51,13 +51,13 @@ defmodule Ash.Resource.Calculation.Expression do
         context: context.source_context || %{}
       )
 
-    Enum.reduce_while(records, {:ok, []}, fn record, {:ok, values} ->
-      case Ash.Filter.hydrate_refs(expression, %{
-             resource: resource,
-             public?: false,
-             eval?: true
-           }) do
-        {:ok, expression} ->
+    case Ash.Filter.hydrate_refs(expression, %{
+           resource: resource,
+           public?: false,
+           eval?: true
+         }) do
+      {:ok, expression} ->
+        Enum.reduce_while(records, {:ok, []}, fn record, {:ok, values} ->
           case Ash.Expr.eval_hydrated(expression,
                  record: record,
                  resource: resource,
@@ -74,17 +74,11 @@ defmodule Ash.Resource.Calculation.Expression do
             {:error, error} ->
               {:halt, {:error, error}}
           end
-
-        {:error, error} ->
-          {:halt, {:error, error}}
-      end
-    end)
-    |> case do
-      {:ok, values} ->
-        {:ok, Enum.reverse(values)}
-
-      :unknown ->
-        :unknown
+        end)
+        |> case do
+          {:ok, values} -> {:ok, Enum.reverse(values)}
+          {:error, error} -> {:error, error}
+        end
 
       {:error, error} ->
         {:error, error}

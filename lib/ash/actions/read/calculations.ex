@@ -1093,22 +1093,9 @@ defmodule Ash.Actions.Read.Calculations do
            Ash.Resource.Calculation.has_calculate?(calculation.module) do
         {:ok, calculation}
       else
-        expression =
-          Ash.Expr.fill_template(expression, context: calculation.context.source_context)
-
-        Enum.reduce_while(initial_data, {:ok, []}, fn record, {:ok, results} ->
-          case Ash.Expr.eval(expression,
-                 record: record,
-                 resource: resource,
-                 unknown_on_unknown_refs?: true
-               ) do
-            {:ok, result} ->
-              {:cont, {:ok, [result | results]}}
-
-            _ ->
-              {:halt, :error}
-          end
-        end)
+        expression
+        |> Ash.Expr.fill_template(context: calculation.context.source_context)
+        |> eval_for_each(initial_data, resource)
         |> case do
           {:ok, values} ->
             {:ok,
@@ -1146,6 +1133,24 @@ defmodule Ash.Actions.Read.Calculations do
 
       _ ->
         :error
+    end
+  end
+
+  defp eval_for_each(_expression, [], _resource), do: {:ok, []}
+
+  defp eval_for_each(expression, records, resource) do
+    with {:ok, expression} <-
+           Ash.Filter.hydrate_refs(expression, %{resource: resource, eval?: true}) do
+      Enum.reduce_while(records, {:ok, []}, fn record, {:ok, results} ->
+        case Ash.Expr.eval_hydrated(expression,
+               record: record,
+               resource: resource,
+               unknown_on_unknown_refs?: true
+             ) do
+          {:ok, result} -> {:cont, {:ok, [result | results]}}
+          _ -> {:halt, :error}
+        end
+      end)
     end
   end
 
