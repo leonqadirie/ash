@@ -651,17 +651,7 @@ defmodule Ash.Policy.Policy do
 
   def fetch_or_strict_check_fact(authorizer, {check_module, opts}) do
     authorizer.facts
-    |> Enum.find_value(fn
-      {{fact_mod, fact_opts}, result} when result != :unknown ->
-        if check_module == fact_mod &&
-             Keyword.drop(fact_opts, [:access_type, :ash_field_policy?]) ==
-               Keyword.drop(opts, [:access_type, :ash_field_policy?]) do
-          {:ok, result}
-        end
-
-      _ ->
-        nil
-    end)
+    |> find_fact(check_module, opts, :known)
     |> case do
       nil ->
         if Ash.Policy.Check.requires_original_data?(check_module, authorizer, opts) &&
@@ -719,26 +709,35 @@ defmodule Ash.Policy.Policy do
   def fetch_fact(_facts, {Check.Static, opts}), do: {:ok, opts[:result]}
 
   def fetch_fact(facts, {mod, opts}) do
-    Enum.find_value(facts, fn
-      {{fact_mod, fact_opts}, result} ->
-        if mod == fact_mod &&
-             Keyword.drop(fact_opts, [:access_type, :ash_field_policy?]) ==
-               Keyword.drop(opts, [:access_type, :ash_field_policy?]) do
-          {:ok, result}
-        end
+    case find_fact(facts, mod, opts, :any) do
+      nil -> :error
+      value -> value
+    end
+  end
+
+  @fact_opts_ignored_when_matching [:access_type, :ash_field_policy?]
+
+  # The authorizer keys each fact by its check's full options. Checks that differ only in the
+  # ignored options share a result, so when the exact key holds no usable fact the lookup
+  # compares every other fact without those options. A lookup that wants a known result skips
+  # unknown facts, the one under the exact key included.
+  defp find_fact(facts, mod, opts, wanted) do
+    case Map.fetch(facts, {mod, opts}) do
+      {:ok, result} when wanted == :any or is_boolean(result) ->
+        {:ok, result}
 
       _ ->
-        nil
-    end)
-    |> case do
-      nil ->
-        :error
+        opts = Keyword.drop(opts, @fact_opts_ignored_when_matching)
 
-      :unknown ->
-        :error
+        Enum.find_value(facts, fn
+          {{^mod, fact_opts}, result} when wanted == :any or result != :unknown ->
+            if Keyword.drop(fact_opts, @fact_opts_ignored_when_matching) == opts do
+              {:ok, result}
+            end
 
-      value ->
-        value
+          _ ->
+            nil
+        end)
     end
   end
 

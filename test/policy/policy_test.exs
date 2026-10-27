@@ -1015,6 +1015,16 @@ defmodule Ash.Test.Policy.Policy do
     test "gives error if missing" do
       assert :error = Ash.Policy.Policy.fetch_fact(%{}, {RuntimeCheck, []})
     end
+
+    test "gives an unknown fact stored under the exact key over one stored under another access type" do
+      facts = %{
+        {RuntimeCheck, [access_type: :strict]} => :unknown,
+        {RuntimeCheck, [access_type: :filter]} => true
+      }
+
+      assert {:ok, :unknown} =
+               Ash.Policy.Policy.fetch_fact(facts, {RuntimeCheck, [access_type: :strict]})
+    end
   end
 
   describe inspect(&Ash.Policy.Policy.debug_expr/2) do
